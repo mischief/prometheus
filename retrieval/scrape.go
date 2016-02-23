@@ -114,6 +114,34 @@ func (sp *scrapePool) stop() {
 	wg.Wait()
 }
 
+func (sp *scrapePool) reload(cfg *config.ScrapeConfig) {
+	log.Debugln("reload scrapepool")
+	defer log.Debugln("reload done")
+
+	sp.mtx.Lock()
+	defer sp.mtx.Unlock()
+
+	sp.config = cfg
+
+	var wg sync.WaitGroup
+
+	for _, tgroup := range sp.tgroups {
+		for _, t := range tgroup {
+			wg.Add(1)
+
+			go func(t *Target) {
+				t.scrapeLoop.stop()
+
+				t.scrapeLoop = newScrapeLoop(sp.ctx, t, sp.sampleAppender(t), sp.reportAppender(t))
+				go t.scrapeLoop.run(time.Duration(cfg.ScrapeInterval), time.Duration(cfg.ScrapeTimeout), nil)
+				wg.Done()
+			}(t)
+		}
+	}
+
+	wg.Wait()
+}
+
 // sampleAppender returns an appender for ingested samples from the target.
 func (sp *scrapePool) sampleAppender(target *Target) storage.SampleAppender {
 	app := sp.appender
@@ -150,6 +178,7 @@ func (sp *scrapePool) reportAppender(target *Target) storage.SampleAppender {
 
 func (sp *scrapePool) sync(tgroups map[string]map[model.Fingerprint]*Target) {
 	sp.mtx.Lock()
+	defer sp.mtx.Unlock()
 
 	var (
 		wg         sync.WaitGroup
@@ -210,9 +239,6 @@ func (sp *scrapePool) sync(tgroups map[string]map[model.Fingerprint]*Target) {
 	// may be active and tries to insert. The old scraper that didn't terminate yet could still
 	// be inserting a previous sample set.
 	wg.Wait()
-
-	// TODO(fabxc): maybe this can be released earlier with subsequent refactoring.
-	sp.mtx.Unlock()
 }
 
 type loop interface {
