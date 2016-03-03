@@ -242,8 +242,10 @@ func parse(args []string) error {
 	if err := parsePrometheusURL(); err != nil {
 		return err
 	}
-
 	if err := parseInfluxdbURL(); err != nil {
+		return err
+	}
+	if err := validateAlertmanagerURL(); err != nil {
 		return err
 	}
 
@@ -298,6 +300,23 @@ func parseInfluxdbURL() error {
 	}
 
 	cfg.remote.InfluxdbURL = url
+	return nil
+}
+
+func validateAlertmanagerURL() error {
+	if cfg.notifier.AlertmanagerURL == "" {
+		return nil
+	}
+	if ok := govalidator.IsURL(cfg.notifier.AlertmanagerURL); !ok {
+		return fmt.Errorf("Invalid Alertmanager URL: %s", cfg.notifier.AlertmanagerURL)
+	}
+	url, err := url.Parse(cfg.notifier.AlertmanagerURL)
+	if err != nil {
+		return err
+	}
+	if url.Scheme == "" {
+		return fmt.Errorf("Missing scheme in Alertmanager URL: %s", cfg.notifier.AlertmanagerURL)
+	}
 	return nil
 }
 
